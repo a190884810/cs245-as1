@@ -65,8 +65,11 @@ public class RowTable implements Table {
      */
     @Override
     public long columnSum() {
-        // TODO: Implement this!
-        return 0;
+        long sum = 0;
+        for(int rowId = 0; rowId < numRows; ++rowId) {
+            sum += getIntField(rowId, 0);
+        }
+        return sum;
     }
 
     /**
