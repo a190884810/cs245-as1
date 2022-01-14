@@ -46,15 +46,13 @@ public class IndexedRowTable implements Table {
         for (int rowId = 0; rowId < numRows; rowId++) {
             ByteBuffer curRow = rows.get(rowId);
             for (int colId = 0; colId < numCols; colId++) {
-                int offset = ByteFormat.FIELD_LEN * ((rowId * numCols) + colId);
                 int field = curRow.getInt(ByteFormat.FIELD_LEN * colId);
-                this.rows.putInt(offset, field);
+                putIntField(rowId, colId, field);
                 if (colId == indexColumn) {
-                    if (this.index.containsKey(field)) {
-                        this.index.get(field).add(rowId);
-                    } else {
-                        this.index.put(field, IntArrayList.wrap(new int[]{field}));
+                    if (!this.index.containsKey(field)) {
+                        this.index.put(field, new IntArrayList());
                     }
+                    this.index.get(field).add(rowId);
                 }
             }
         }
@@ -119,7 +117,10 @@ public class IndexedRowTable implements Table {
         // Apply index to improve performance
         if (indexColumn == 1 || indexColumn == 2) {
             for (Integer key : index.keySet()) {
-                if (indexColumn == 1 && key > threshold1 || indexColumn == 2 && key < threshold2) {
+                if(indexColumn == 2 && key >= threshold2) { // No need to continue the rest of the loop
+                    break;
+                }
+                if (indexColumn == 1 && key > threshold1 || indexColumn == 2) {
                     IntArrayList satisfiedRowIds = index.get(key);
                     for (Integer rowId : satisfiedRowIds) {
                         if (isValid(rowId, 3 - indexColumn, indexColumn == 1 ? threshold2 : threshold1)) {
@@ -150,8 +151,36 @@ public class IndexedRowTable implements Table {
      */
     @Override
     public long predicatedAllColumnsSum(int threshold) {
-        // TODO: Implement this!
-        return 0;
+        long sum = 0;
+
+        // Apply index to improve performance
+        if (indexColumn == 0) {
+            for (Integer key : index.descendingKeySet()) {
+                if(key <= threshold) { // No need to continue the rest of the loop
+                    break;
+                }
+                IntArrayList satisfiedRowIds = index.get(key);
+                for (Integer rowId : satisfiedRowIds) {
+                    sum += key;
+                    for (int colId = 1; colId < numCols; colId++) {
+                        sum += getIntField(rowId, colId);
+                    }
+                }
+            }
+            return sum;
+        }
+
+        // in the case that we can't use the index
+        for (int rowId = 0; rowId < numRows; rowId++) {
+            int col0Val = getIntField(rowId, 0);
+            if (col0Val > threshold) {
+                sum += col0Val;
+                for (int colId = 1; colId < numCols; colId++) {
+                    sum += getIntField(rowId, numCols);
+                }
+            }
+        }
+        return sum;
     }
 
     /**

@@ -101,8 +101,17 @@ public class ColumnTable implements Table {
      */
     @Override
     public long predicatedAllColumnsSum(int threshold) {
-        // TODO: Implement this!
-        return 0;
+        long sum = 0;
+        for (int rowId = 0; rowId < numRows; rowId++) {
+            int curVal = getIntField(rowId, 0);
+            if (curVal > threshold) {
+                sum += curVal;
+                for (int colId = 1; colId < numCols; colId++) {
+                    sum += getIntField(rowId, colId);
+                }
+            }
+        }
+        return sum;
     }
 
     /**
