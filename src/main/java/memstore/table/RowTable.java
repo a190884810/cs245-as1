@@ -104,9 +104,9 @@ public class RowTable implements Table {
     public long predicatedAllColumnsSum(int threshold) {
         long sum = 0;
         for (int rowId = 0; rowId < numRows; rowId++) {
-            int curVal = getIntField(rowId, 0);
-            if (curVal > threshold) {
-                sum += curVal;
+            int col0Val = getIntField(rowId, 0);
+            if (col0Val > threshold) {
+                sum += col0Val;
                 for (int colId = 1; colId < numCols; colId++) {
                     sum += getIntField(rowId, colId);
                 }
@@ -123,7 +123,16 @@ public class RowTable implements Table {
      */
     @Override
     public int predicatedUpdate(int threshold) {
-        // TODO: Implement this!
-        return 0;
+        int count = 0;
+        for (int rowId = 0; rowId < numRows; rowId++) {
+            int col0Val = getIntField(rowId, 0);
+            if (col0Val < threshold) {
+                int col1Val = getIntField(rowId, 1);
+                int col2Val = getIntField(rowId, 2);
+                putIntField(rowId, 3, col1Val + col2Val);
+                ++count;
+            }
+        }
+        return count;
     }
 }
