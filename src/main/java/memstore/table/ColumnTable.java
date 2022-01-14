@@ -66,8 +66,12 @@ public class ColumnTable implements Table {
      */
     @Override
     public long columnSum() {
-        // TODO: Implement this!
-        return 0;
+        long sum = 0;
+        for(int rowId = 0; rowId < numRows; ++rowId) {
+            sum += columns.getInt();
+        }
+        columns.rewind();
+        return sum;
     }
 
     /**
