@@ -170,7 +170,7 @@ public class IndexedRowTable implements Table {
             return sum;
         }
 
-        // in the case that we can't use the index
+        // Index can't be used
         for (int rowId = 0; rowId < numRows; rowId++) {
             int col0Val = getIntField(rowId, 0);
             if (col0Val > threshold) {
@@ -191,7 +191,35 @@ public class IndexedRowTable implements Table {
      */
     @Override
     public int predicatedUpdate(int threshold) {
-        // TODO: Implement this!
-        return 0;
+        int count = 0;
+
+        // Apply index to improve performance
+        if (indexColumn == 0) {
+            for (Integer key : index.keySet()) {
+                if (key >= threshold) { // No need to continue the rest of the loop
+                    break;
+                }
+                IntArrayList satisfiedRowIds = index.get(key);
+                for (Integer rowId : satisfiedRowIds) {
+                    int col1Val = getIntField(rowId, 1);
+                    int col2Val = getIntField(rowId, 2);
+                    putIntField(rowId, 3, col1Val + col2Val);
+                    ++count;
+                }
+            }
+            return count;
+        }
+
+        // Index can't be used
+        for (int rowId = 0; rowId < numRows; rowId++) {
+            int col0Val = getIntField(rowId, 0);
+            if (col0Val < threshold) {
+                int col1Val = getIntField(rowId, 1);
+                int col2Val = getIntField(rowId, 2);
+                putIntField(rowId, 3, col1Val + col2Val);
+                ++count;
+            }
+        }
+        return count;
     }
 }
