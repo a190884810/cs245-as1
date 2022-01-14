@@ -35,8 +35,8 @@ public class RowTable implements Table {
         for (int rowId = 0; rowId < numRows; rowId++) {
             ByteBuffer curRow = rows.get(rowId);
             for (int colId = 0; colId < numCols; colId++) {
-                int offset = ByteFormat.FIELD_LEN * ((rowId * numCols) + colId);
-                this.rows.putInt(offset, curRow.getInt(ByteFormat.FIELD_LEN * colId));
+                int field = curRow.getInt(ByteFormat.FIELD_LEN * colId);
+                putIntField(rowId, colId, field);
             }
         }
     }
@@ -102,8 +102,17 @@ public class RowTable implements Table {
      */
     @Override
     public long predicatedAllColumnsSum(int threshold) {
-        // TODO: Implement this!
-        return 0;
+        long sum = 0;
+        for (int rowId = 0; rowId < numRows; rowId++) {
+            int curVal = getIntField(rowId, 0);
+            if (curVal > threshold) {
+                sum += curVal;
+                for (int colId = 1; colId < numCols; colId++) {
+                    sum += getIntField(rowId, colId);
+                }
+            }
+        }
+        return sum;
     }
 
     /**
