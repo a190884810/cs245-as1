@@ -46,7 +46,8 @@ public class RowTable implements Table {
      */
     @Override
     public int getIntField(int rowId, int colId) {
-        return this.rows.getInt(ByteFormat.FIELD_LEN * ((rowId * numCols) + colId));
+        int offset = (rowId * numCols + colId) * ByteFormat.FIELD_LEN;
+        return rows.getInt(offset);
     }
 
     /**
@@ -54,7 +55,8 @@ public class RowTable implements Table {
      */
     @Override
     public void putIntField(int rowId, int colId, int field) {
-        this.rows.putInt(ByteFormat.FIELD_LEN * ((rowId * numCols) + colId), field);
+        int offset = (rowId * numCols + colId) * ByteFormat.FIELD_LEN;
+        rows.putInt(offset, field);
     }
 
     /**
@@ -66,7 +68,7 @@ public class RowTable implements Table {
     @Override
     public long columnSum() {
         long sum = 0;
-        for(int rowId = 0; rowId < numRows; ++rowId) {
+        for (int rowId = 0; rowId < numRows; rowId++) {
             sum += getIntField(rowId, 0);
         }
         return sum;
@@ -81,8 +83,15 @@ public class RowTable implements Table {
      */
     @Override
     public long predicatedColumnSum(int threshold1, int threshold2) {
-        // TODO: Implement this!
-        return 0;
+        long sum = 0;
+        for (int rowId = 0; rowId < numRows; rowId++) {
+            int col1Val = getIntField(rowId, 1);
+            int col2Val = getIntField(rowId, 2);
+            if (col1Val > threshold1 && col2Val < threshold2) {
+                sum += getIntField(rowId, 0);
+            }
+        }
+        return sum;
     }
 
     /**

@@ -49,8 +49,8 @@ public class IndexedRowTable implements Table {
                 int offset = ByteFormat.FIELD_LEN * ((rowId * numCols) + colId);
                 int field = curRow.getInt(ByteFormat.FIELD_LEN * colId);
                 this.rows.putInt(offset, field);
-                if(colId == indexColumn) {
-                    if(this.index.containsKey(field)) {
+                if (colId == indexColumn) {
+                    if (this.index.containsKey(field)) {
                         this.index.get(field).add(rowId);
                     } else {
                         this.index.put(field, IntArrayList.wrap(new int[]{field}));
@@ -65,7 +65,8 @@ public class IndexedRowTable implements Table {
      */
     @Override
     public int getIntField(int rowId, int colId) {
-        return this.rows.getInt(ByteFormat.FIELD_LEN * ((rowId * numCols) + colId));
+        int offset = (rowId * numCols + colId) * ByteFormat.FIELD_LEN;
+        return rows.getInt(offset);
     }
 
     /**
@@ -73,7 +74,8 @@ public class IndexedRowTable implements Table {
      */
     @Override
     public void putIntField(int rowId, int colId, int field) {
-        this.rows.putInt(ByteFormat.FIELD_LEN * ((rowId * numCols) + colId), field);
+        int offset = (rowId * numCols + colId) * ByteFormat.FIELD_LEN;
+        rows.putInt(offset, field);
     }
 
     /**
@@ -85,10 +87,22 @@ public class IndexedRowTable implements Table {
     @Override
     public long columnSum() {
         long sum = 0;
-        for(int rowId = 0; rowId < numRows; ++rowId) {
+        for (int rowId = 0; rowId < numRows; rowId++) {
             sum += getIntField(rowId, 0);
         }
         return sum;
+    }
+
+    /**
+     * Check whether current row fits the threshold
+     * @param rowId Current row id
+     * @param colId current col id
+     * @param threshold Either threshold1 or threshold2 depends on the value of {@code colId}
+     * @return true if curernt row fits the threshold.
+     */
+    private boolean isValid(int rowId, int colId, int threshold) {
+        int field = getIntField(rowId, colId);
+        return colId == 1 ? field > threshold : field < threshold;
     }
 
     /**
@@ -100,8 +114,32 @@ public class IndexedRowTable implements Table {
      */
     @Override
     public long predicatedColumnSum(int threshold1, int threshold2) {
-        // TODO: Implement this!
-        return 0;
+        long sum = 0;
+
+        // Apply index to improve performance
+        if (indexColumn == 1 || indexColumn == 2) {
+            for (Integer key : index.keySet()) {
+                if (indexColumn == 1 && key > threshold1 || indexColumn == 2 && key < threshold2) {
+                    IntArrayList satisfiedRowIds = index.get(key);
+                    for (Integer rowId : satisfiedRowIds) {
+                        if (isValid(rowId, 3 - indexColumn, indexColumn == 1 ? threshold2 : threshold1)) {
+                            sum += getIntField(rowId, 0);
+                        }
+                    }
+                }
+            }
+            return sum;
+        }
+
+        // Index can't be used
+        for (int rowId = 0; rowId < numRows; rowId++) {
+            int col1Val = getIntField(rowId, 1);
+            int col2Val = getIntField(rowId, 2);
+            if (col1Val > threshold1 && col2Val < threshold2) {
+                sum += getIntField(rowId, 0);
+            }
+        }
+        return sum;
     }
 
     /**
