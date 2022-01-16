@@ -19,6 +19,9 @@ public class CustomTable implements Table {
     protected TreeMap<Integer, IntArrayList> firstIndex;
     protected TreeMap<Pair, IntArrayList> secondIndex;
 
+    // rowSum Cache
+    protected ByteBuffer rowSums;
+
     public CustomTable() {
         firstIndex = new TreeMap<>();
         secondIndex = new TreeMap<>();
@@ -36,6 +39,7 @@ public class CustomTable implements Table {
         List<ByteBuffer> rows = loader.getRows();
         this.numRows = rows.size();
         this.rowsBuffer = ByteBuffer.allocate(ByteFormat.FIELD_LEN * numRows * numCols);
+        this.rowSums = ByteBuffer.allocate(ByteFormat.FIELD_LEN * numRows);
 
         for (int rowId = 0; rowId < numRows; rowId++) {
             ByteBuffer curRow = rows.get(rowId);
@@ -51,7 +55,15 @@ public class CustomTable implements Table {
             int col2Val = getIntField(rowId, 2);
             Pair col12Val = new Pair(col1Val, col2Val);
             addSecondIndex(col12Val, rowId);
+
+            // Setup rowSum cache
+            int curRowSum = 0;
+            for (int colId = 0; colId < numCols; colId++) {
+                curRowSum += getIntField(rowId, colId);
+            }
+            rowSums.putInt(curRowSum);
         }
+        rowSums.rewind();
     }
 
     /**
@@ -68,32 +80,36 @@ public class CustomTable implements Table {
      */
     @Override
     public void putIntField(int rowId, int colId, int field) {
+        int oldField = getIntField(rowId, colId);
         if (colId == 0) {
-            // delete old reference
-            int colOVal = getIntField(rowId, 0);
-            deleteFirstIndex(colOVal, rowId);
-
-            // create new reference
+            // Delete and add reference
+            deleteFirstIndex(oldField, rowId);
             addFirstIndex(field, rowId);
-            sumCol0 += field - colOVal;
+            sumCol0 += field - oldField;
         } else if (colId == 1 || colId == 2) {
-            // delete old reference
-            int col1Val = getIntField(rowId, 1);
-            int col2Val = getIntField(rowId, 2);
-            Pair col12Val = new Pair(col1Val, col2Val);
-            deleteSecondIndex(col12Val, rowId);
-
-            // create new reference
+            Pair col12Val;
             Pair updatedKeyPair;
+
+            // Delete and add reference
             if (colId == 1) {
+                int col2Val = getIntField(rowId, 2);
+                col12Val = new Pair(oldField, col2Val);
+                deleteSecondIndex(col12Val, rowId);
                 updatedKeyPair = new Pair(field, col2Val);
             } else {
+                int col1Val = getIntField(rowId, 1);
+                col12Val = new Pair(col1Val, oldField);
+                deleteSecondIndex(col12Val, rowId);
                 updatedKeyPair = new Pair(col1Val, field);
             }
             addSecondIndex(updatedKeyPair, rowId);
         }
         int offset = ByteFormat.FIELD_LEN * ((rowId * numCols) + colId);
         rowsBuffer.putInt(offset, field);
+
+        // Update rowSum cache
+        int oldRowSum = rowSums.getInt(ByteFormat.FIELD_LEN * rowId);
+        rowSums.putInt(ByteFormat.FIELD_LEN * rowId, oldRowSum - oldField + field);
     }
 
     /**
@@ -152,9 +168,7 @@ public class CustomTable implements Table {
             }
             IntArrayList rowIds = entry.getValue();
             for (int i = 0; i < rowIds.size(); i++) {
-                for (int colId = 0; colId < numCols; colId++) {
-                    sum += getIntField(rowIds.getInt(i), colId);
-                }
+                sum += rowSums.getInt(rowIds.getInt(i) * ByteFormat.FIELD_LEN);
             }
         }
         return sum;
