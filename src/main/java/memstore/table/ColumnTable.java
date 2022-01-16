@@ -103,9 +103,9 @@ public class ColumnTable implements Table {
     public long predicatedAllColumnsSum(int threshold) {
         long sum = 0;
         for (int rowId = 0; rowId < numRows; rowId++) {
-            int col0Val = getIntField(rowId, 0);
-            if (col0Val > threshold) {
-                sum += col0Val;
+            int curVal = getIntField(rowId, 0);
+            if (curVal > threshold) {
+                sum += curVal;
                 for (int colId = 1; colId < numCols; colId++) {
                     sum += getIntField(rowId, colId);
                 }

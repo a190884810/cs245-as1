@@ -47,7 +47,8 @@ public class IndexedRowTable implements Table {
             ByteBuffer curRow = rows.get(rowId);
             for (int colId = 0; colId < numCols; colId++) {
                 int field = curRow.getInt(ByteFormat.FIELD_LEN * colId);
-                putIntField(rowId, colId, field);
+                int offset = (rowId * numCols + colId) * ByteFormat.FIELD_LEN;
+                this.rows.putInt(offset, field);
                 if (colId == indexColumn) {
                     if (!this.index.containsKey(field)) {
                         this.index.put(field, new IntArrayList());
@@ -72,8 +73,25 @@ public class IndexedRowTable implements Table {
      */
     @Override
     public void putIntField(int rowId, int colId, int field) {
+        int oldField = getIntField(rowId, colId);
+        if(oldField == field) {
+            return;
+        }
         int offset = (rowId * numCols + colId) * ByteFormat.FIELD_LEN;
         rows.putInt(offset, field);
+
+        // Update index tree
+        if (colId == indexColumn) {
+            IntArrayList rowIds = this.index.get(oldField);
+            rowIds.rem(rowId);
+            if (rowIds.size() == 0) {
+                this.index.remove(colId);
+            }
+            if (!this.index.containsKey(field)) {
+                this.index.put(field, new IntArrayList());
+            }
+            this.index.get(field).add(rowId);
+        }
     }
 
     /**

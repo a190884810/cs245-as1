@@ -3,11 +3,16 @@ package memstore.table;
 import memstore.data.DataLoader;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 
 /**
  * Custom table implementation to adapt to provided query mix.
  */
 public class CustomTable implements Table {
+    int numRows;
+    int numCols;
+    protected ByteBuffer columns;
+
 
     public CustomTable() { }
 
