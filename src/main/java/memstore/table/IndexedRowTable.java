@@ -21,6 +21,7 @@ public class IndexedRowTable implements Table {
 
     int numCols;
     int numRows;
+    int sumCol0;
     private TreeMap<Integer, IntArrayList> index;
     private ByteBuffer rows;
     private final int indexColumn;
@@ -51,11 +52,18 @@ public class IndexedRowTable implements Table {
                 this.rows.putInt(offset, field);
                 if (colId == indexColumn) {
                     if (!this.index.containsKey(field)) {
-                        this.index.put(field, new IntArrayList());
+                        IntArrayList rowIds = new IntArrayList();
+                        rowIds.add(rowId);
+                        this.index.put(field, rowIds);
+                    } else {
+                        this.index.get(field).add(rowId);
                     }
-                    this.index.get(field).add(rowId);
+
                 }
             }
+
+            int indexColVal = getIntField(rowId, 0);
+            sumCol0 += indexColVal;
         }
     }
 
@@ -85,12 +93,15 @@ public class IndexedRowTable implements Table {
             IntArrayList rowIds = this.index.get(oldField);
             rowIds.rem(rowId);
             if (rowIds.size() == 0) {
-                this.index.remove(colId);
+                this.index.remove(oldField);
             }
             if (!this.index.containsKey(field)) {
                 this.index.put(field, new IntArrayList());
             }
             this.index.get(field).add(rowId);
+        }
+        if (colId == 0) {
+            sumCol0 += field - oldField;
         }
     }
 
@@ -102,11 +113,7 @@ public class IndexedRowTable implements Table {
      */
     @Override
     public long columnSum() {
-        long sum = 0;
-        for (int rowId = 0; rowId < numRows; rowId++) {
-            sum += getIntField(rowId, 0);
-        }
-        return sum;
+        return sumCol0;
     }
 
     /**
@@ -139,8 +146,8 @@ public class IndexedRowTable implements Table {
                     break;
                 }
                 if (indexColumn == 1 && key > threshold1 || indexColumn == 2) {
-                    IntArrayList satisfiedRowIds = index.get(key);
-                    for (Integer rowId : satisfiedRowIds) {
+                    IntArrayList validRowIds = index.get(key);
+                    for (Integer rowId : validRowIds) {
                         if (isValid(rowId, 3 - indexColumn, indexColumn == 1 ? threshold2 : threshold1)) {
                             sum += getIntField(rowId, 0);
                         }
@@ -177,8 +184,8 @@ public class IndexedRowTable implements Table {
                 if(key <= threshold) { // No need to continue the rest of the loop
                     break;
                 }
-                IntArrayList satisfiedRowIds = index.get(key);
-                for (Integer rowId : satisfiedRowIds) {
+                IntArrayList validRowIds = index.get(key);
+                for (Integer rowId : validRowIds) {
                     sum += key;
                     for (int colId = 1; colId < numCols; colId++) {
                         sum += getIntField(rowId, colId);
@@ -194,7 +201,7 @@ public class IndexedRowTable implements Table {
             if (col0Val > threshold) {
                 sum += col0Val;
                 for (int colId = 1; colId < numCols; colId++) {
-                    sum += getIntField(rowId, numCols);
+                    sum += getIntField(rowId, colId);
                 }
             }
         }
@@ -213,17 +220,18 @@ public class IndexedRowTable implements Table {
 
         // Apply index to improve performance
         if (indexColumn == 0) {
+            IntArrayList validRowIds = new IntArrayList();
             for (Integer key : index.keySet()) {
                 if (key >= threshold) { // No need to continue the rest of the loop
                     break;
                 }
-                IntArrayList satisfiedRowIds = index.get(key);
-                for (Integer rowId : satisfiedRowIds) {
-                    int col1Val = getIntField(rowId, 1);
-                    int col2Val = getIntField(rowId, 2);
-                    putIntField(rowId, 3, col1Val + col2Val);
-                    ++count;
-                }
+                validRowIds.addAll(index.get(key));
+            }
+            for (Integer rowId : validRowIds) {
+                int col3Val = getIntField(rowId, 3);
+                int col2Val = getIntField(rowId, 2);
+                putIntField(rowId, 3, col3Val + col2Val);
+                ++count;
             }
             return count;
         }
@@ -232,9 +240,9 @@ public class IndexedRowTable implements Table {
         for (int rowId = 0; rowId < numRows; rowId++) {
             int col0Val = getIntField(rowId, 0);
             if (col0Val < threshold) {
-                int col1Val = getIntField(rowId, 1);
+                int col3Val = getIntField(rowId, 3);
                 int col2Val = getIntField(rowId, 2);
-                putIntField(rowId, 3, col1Val + col2Val);
+                putIntField(rowId, 3, col3Val + col2Val);
                 ++count;
             }
         }

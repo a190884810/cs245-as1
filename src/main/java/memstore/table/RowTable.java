@@ -34,10 +34,7 @@ public class RowTable implements Table {
 
         for (int rowId = 0; rowId < numRows; rowId++) {
             ByteBuffer curRow = rows.get(rowId);
-            for (int colId = 0; colId < numCols; colId++) {
-                int field = curRow.getInt(ByteFormat.FIELD_LEN * colId);
-                putIntField(rowId, colId, field);
-            }
+            this.rows.put(curRow);
         }
     }
 
