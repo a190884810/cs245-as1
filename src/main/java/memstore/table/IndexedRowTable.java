@@ -26,6 +26,9 @@ public class IndexedRowTable implements Table {
     private ByteBuffer rows;
     private final int indexColumn;
 
+    // rowSum Cache
+    protected ByteBuffer rowSums;
+
     public IndexedRowTable(int indexColumn) {
         this.indexColumn = indexColumn;
     }
@@ -43,11 +46,14 @@ public class IndexedRowTable implements Table {
         this.numRows = rows.size();
         this.rows = ByteBuffer.allocate(ByteFormat.FIELD_LEN * numRows * numCols);
         this.index = new TreeMap<>();
+        this.rowSums = ByteBuffer.allocate(ByteFormat.FIELD_LEN * numRows);
 
         for (int rowId = 0; rowId < numRows; rowId++) {
             ByteBuffer curRow = rows.get(rowId);
+            int curRowSum = 0;
             for (int colId = 0; colId < numCols; colId++) {
                 int field = curRow.getInt(ByteFormat.FIELD_LEN * colId);
+                curRowSum += field;
                 int offset = (rowId * numCols + colId) * ByteFormat.FIELD_LEN;
                 this.rows.putInt(offset, field);
                 if (colId == indexColumn) {
@@ -58,13 +64,13 @@ public class IndexedRowTable implements Table {
                     } else {
                         this.index.get(field).add(rowId);
                     }
-
                 }
             }
-
+            rowSums.putInt(curRowSum);
             int indexColVal = getIntField(rowId, 0);
             sumCol0 += indexColVal;
         }
+        rowSums.rewind();
     }
 
     /**
@@ -103,6 +109,10 @@ public class IndexedRowTable implements Table {
         if (colId == 0) {
             sumCol0 += field - oldField;
         }
+
+        // Update rowSum cache
+        int oldRowSum = rowSums.getInt(ByteFormat.FIELD_LEN * rowId);
+        rowSums.putInt(ByteFormat.FIELD_LEN * rowId, oldRowSum - oldField + field);
     }
 
     /**
@@ -186,10 +196,7 @@ public class IndexedRowTable implements Table {
                 }
                 IntArrayList validRowIds = index.get(key);
                 for (Integer rowId : validRowIds) {
-                    sum += key;
-                    for (int colId = 1; colId < numCols; colId++) {
-                        sum += getIntField(rowId, colId);
-                    }
+                    sum += rowSums.getInt(ByteFormat.FIELD_LEN * rowId);
                 }
             }
             return sum;
@@ -199,10 +206,7 @@ public class IndexedRowTable implements Table {
         for (int rowId = 0; rowId < numRows; rowId++) {
             int col0Val = getIntField(rowId, 0);
             if (col0Val > threshold) {
-                sum += col0Val;
-                for (int colId = 1; colId < numCols; colId++) {
-                    sum += getIntField(rowId, colId);
-                }
+                sum += rowSums.getInt(ByteFormat.FIELD_LEN * rowId);
             }
         }
         return sum;
