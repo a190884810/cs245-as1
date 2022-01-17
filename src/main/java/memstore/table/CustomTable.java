@@ -16,11 +16,11 @@ public class CustomTable implements Table {
     protected int numCols;
     protected int sumCol0;
     protected ByteBuffer rowsBuffer;
-    protected TreeMap<Integer, IntArrayList> firstIndex;
+    protected TreeMap<Integer, PairForFirstIndex> firstIndex;
     protected TreeMap<Pair, IntArrayList> secondIndex;
 
     // rowSum Cache
-    protected ByteBuffer rowSums;
+    ByteBuffer rowSums;
 
     public CustomTable() {
         firstIndex = new TreeMap<>();
@@ -45,6 +45,13 @@ public class CustomTable implements Table {
             ByteBuffer curRow = rows.get(rowId);
             this.rowsBuffer.put(curRow);
 
+            // Setup rowSum cache
+            int curRowSum = 0;
+            for (int colId = 0; colId < numCols; colId++) {
+                curRowSum += getIntField(rowId, colId);
+            }
+            rowSums.putInt(curRowSum);
+
             int col0Val = getIntField(rowId, 0);
             sumCol0 += col0Val;
             // Build first index cache
@@ -55,13 +62,6 @@ public class CustomTable implements Table {
             int col2Val = getIntField(rowId, 2);
             Pair col12Val = new Pair(col1Val, col2Val);
             addSecondIndex(col12Val, rowId);
-
-            // Setup rowSum cache
-            int curRowSum = 0;
-            for (int colId = 0; colId < numCols; colId++) {
-                curRowSum += getIntField(rowId, colId);
-            }
-            rowSums.putInt(curRowSum);
         }
         rowSums.rewind();
     }
@@ -81,6 +81,13 @@ public class CustomTable implements Table {
     @Override
     public void putIntField(int rowId, int colId, int field) {
         int oldField = getIntField(rowId, colId);
+        int offset = ByteFormat.FIELD_LEN * ((rowId * numCols) + colId);
+        rowsBuffer.putInt(offset, field);
+
+        // Update rowSum cache
+        int oldRowSum = rowSums.getInt(ByteFormat.FIELD_LEN * rowId);
+        rowSums.putInt(ByteFormat.FIELD_LEN * rowId, oldRowSum - oldField + field);
+
         if (colId == 0) {
             // Delete and add reference
             deleteFirstIndex(oldField, rowId);
@@ -104,12 +111,14 @@ public class CustomTable implements Table {
             }
             addSecondIndex(updatedKeyPair, rowId);
         }
-        int offset = ByteFormat.FIELD_LEN * ((rowId * numCols) + colId);
-        rowsBuffer.putInt(offset, field);
 
-        // Update rowSum cache
-        int oldRowSum = rowSums.getInt(ByteFormat.FIELD_LEN * rowId);
-        rowSums.putInt(ByteFormat.FIELD_LEN * rowId, oldRowSum - oldField + field);
+        // Need to update firstIndex colSum
+        if (colId != 0) {
+            PairForFirstIndex pair = firstIndex.get(oldField);
+            int sumCol = pair.getSumCol();
+            sumCol += field - oldField;
+            pair.setSumCol(sumCol);
+        }
     }
 
     /**
@@ -161,15 +170,12 @@ public class CustomTable implements Table {
     @Override
     public long predicatedAllColumnsSum(int threshold) {
         long sum = 0;
-        for (Map.Entry<Integer, IntArrayList> entry : firstIndex.descendingMap().entrySet()) {
+        for (Map.Entry<Integer, PairForFirstIndex> entry : firstIndex.descendingMap().entrySet()) {
             int col0Val = entry.getKey();
             if (col0Val <= threshold) {
                 break;
             }
-            IntArrayList rowIds = entry.getValue();
-            for (int i = 0; i < rowIds.size(); i++) {
-                sum += rowSums.getInt(rowIds.getInt(i) * ByteFormat.FIELD_LEN);
-            }
+            sum += entry.getValue().getSumCol();
         }
         return sum;
     }
@@ -183,12 +189,12 @@ public class CustomTable implements Table {
     @Override
     public int predicatedUpdate(int threshold) {
         int count = 0;
-        for (Map.Entry<Integer, IntArrayList> entry : firstIndex.entrySet()) {
+        for (Map.Entry<Integer, PairForFirstIndex> entry : firstIndex.entrySet()) {
             int col0Val = entry.getKey();
             if (col0Val >= threshold) {
                 break;
             }
-            IntArrayList rowIds = entry.getValue();
+            IntArrayList rowIds = entry.getValue().getRowIds();
             for (int i = 0; i < rowIds.size(); i++) {
                 ++count;
                 int rowId = rowIds.getInt(i);
@@ -201,19 +207,31 @@ public class CustomTable implements Table {
     }
 
     private void addFirstIndex(int key, int rowId) {
-        IntArrayList rowIds = firstIndex.getOrDefault(key, null);
-        if (rowIds == null) {
-            rowIds = new IntArrayList();
-            firstIndex.put(key, rowIds);
+        PairForFirstIndex pair = firstIndex.getOrDefault(key, null);
+        if (pair == null) {
+            IntArrayList rowIds = new IntArrayList();
+            rowIds.add(rowId);
+            pair = new PairForFirstIndex(getListSum(rowIds), rowIds);
+            firstIndex.put(key, pair);
+        } else {
+            int sum = pair.getSumCol();
+            IntArrayList rowIds = pair.getRowIds();
+            rowIds.add(rowId);
+            sum += rowSums.getInt(rowId * ByteFormat.FIELD_LEN);
+            pair.setSumCol(sum);
         }
-        rowIds.add(rowId);
     }
 
     private void deleteFirstIndex(int key, int rowId) {
-        IntArrayList rowIds = firstIndex.get(key);
+        PairForFirstIndex pair = firstIndex.get(key);
+        int sum = pair.getSumCol();
+        IntArrayList rowIds = pair.getRowIds();
         rowIds.rem(rowId);
         if (rowIds.size() == 0) {
             firstIndex.remove(key);
+        } else {
+            sum -= rowSums.getInt(rowId * ByteFormat.FIELD_LEN);
+            pair.setSumCol(sum);
         }
     }
 
@@ -232,6 +250,15 @@ public class CustomTable implements Table {
         if(rowIds.size() == 0) {
             secondIndex.remove(keyPair);
         }
+    }
+
+    // get each row's col sum
+    private int getListSum(IntArrayList list) {
+        int sum = 0;
+        for (int rowId : list) {
+            sum += rowSums.getInt(rowId * ByteFormat.FIELD_LEN);
+        }
+        return sum;
     }
 
     /**
@@ -264,6 +291,32 @@ public class CustomTable implements Table {
                 return col2Val - p.getCol2Val();
             }
             return p.getCol1Val() - col1Val;
+        }
+    }
+
+    private static class PairForFirstIndex {
+        private int sumCol;
+        private IntArrayList rowIds;
+
+        public PairForFirstIndex(int sumCol, IntArrayList rowIds) {
+            this.sumCol = sumCol;
+            this.rowIds = rowIds;
+        }
+
+        public int getSumCol() {
+            return sumCol;
+        }
+
+        public void setSumCol(int sumCol23) {
+            this.sumCol = sumCol23;
+        }
+
+        public IntArrayList getRowIds() {
+            return rowIds;
+        }
+
+        public void setRowIds(IntArrayList rowIds) {
+            this.rowIds = rowIds;
         }
     }
 }
