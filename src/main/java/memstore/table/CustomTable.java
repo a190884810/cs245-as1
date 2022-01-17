@@ -16,8 +16,8 @@ public class CustomTable implements Table {
     protected int numCols;
     protected int sumCol0;
     protected ByteBuffer rowsBuffer;
-    protected TreeMap<Integer, PairForFirstIndex> firstIndex;
-    protected TreeMap<Pair, IntArrayList> secondIndex;
+    protected TreeMap<Integer, PairForIndex> firstIndex;
+    protected TreeMap<Pair, PairForIndex> secondIndex;
 
     // rowSum Cache
     ByteBuffer rowSums;
@@ -114,7 +114,8 @@ public class CustomTable implements Table {
 
         // Need to update firstIndex colSum
         if (colId != 0) {
-            PairForFirstIndex pair = firstIndex.get(oldField);
+            int col0Val = getIntField(rowId, 0);
+            PairForIndex pair = firstIndex.get(col0Val);
             int sumCol = pair.getSumCol();
             sumCol += field - oldField;
             pair.setSumCol(sumCol);
@@ -142,7 +143,7 @@ public class CustomTable implements Table {
     @Override
     public long predicatedColumnSum(int threshold1, int threshold2) {
         long sum = 0;
-        for (Map.Entry<Pair, IntArrayList> entry : secondIndex.entrySet()) {
+        for (Map.Entry<Pair, PairForIndex> entry : secondIndex.entrySet()) {
             Pair keyPair = entry.getKey();
             // check the threshold
             int col1Val = keyPair.getCol1Val();
@@ -153,10 +154,8 @@ public class CustomTable implements Table {
             if (col2Val >= threshold2) {
                 continue;
             }
-            IntArrayList rowIds = entry.getValue();
-            for (int i = 0; i < rowIds.size(); i++) {
-                sum += getIntField(rowIds.getInt(i), 0);
-            }
+            PairForIndex pair = entry.getValue();
+            sum += pair.getSumCol();
         }
         return sum;
     }
@@ -170,7 +169,7 @@ public class CustomTable implements Table {
     @Override
     public long predicatedAllColumnsSum(int threshold) {
         long sum = 0;
-        for (Map.Entry<Integer, PairForFirstIndex> entry : firstIndex.descendingMap().entrySet()) {
+        for (Map.Entry<Integer, PairForIndex> entry : firstIndex.descendingMap().entrySet()) {
             int col0Val = entry.getKey();
             if (col0Val <= threshold) {
                 break;
@@ -189,7 +188,7 @@ public class CustomTable implements Table {
     @Override
     public int predicatedUpdate(int threshold) {
         int count = 0;
-        for (Map.Entry<Integer, PairForFirstIndex> entry : firstIndex.entrySet()) {
+        for (Map.Entry<Integer, PairForIndex> entry : firstIndex.entrySet()) {
             int col0Val = entry.getKey();
             if (col0Val >= threshold) {
                 break;
@@ -207,11 +206,11 @@ public class CustomTable implements Table {
     }
 
     private void addFirstIndex(int key, int rowId) {
-        PairForFirstIndex pair = firstIndex.getOrDefault(key, null);
+        PairForIndex pair = firstIndex.getOrDefault(key, null);
         if (pair == null) {
             IntArrayList rowIds = new IntArrayList();
             rowIds.add(rowId);
-            pair = new PairForFirstIndex(getListSum(rowIds), rowIds);
+            pair = new PairForIndex(getListSum(rowIds), rowIds);
             firstIndex.put(key, pair);
         } else {
             int sum = pair.getSumCol();
@@ -223,7 +222,7 @@ public class CustomTable implements Table {
     }
 
     private void deleteFirstIndex(int key, int rowId) {
-        PairForFirstIndex pair = firstIndex.get(key);
+        PairForIndex pair = firstIndex.get(key);
         int sum = pair.getSumCol();
         IntArrayList rowIds = pair.getRowIds();
         rowIds.rem(rowId);
@@ -236,19 +235,31 @@ public class CustomTable implements Table {
     }
 
     private void addSecondIndex(Pair keyPair, int rowId) {
-        IntArrayList rowIds = secondIndex.getOrDefault(keyPair, null);
-        if (rowIds == null) {
-            rowIds = new IntArrayList();
-            secondIndex.put(keyPair, rowIds);
+        PairForIndex pair = secondIndex.getOrDefault(keyPair, null);
+        if (pair == null) {
+            IntArrayList rowIds = new IntArrayList();
+            rowIds.add(rowId);
+            pair = new PairForIndex(getCol0Sum(rowIds), rowIds);
+            secondIndex.put(keyPair, pair);
+        } else {
+            int sum = pair.getSumCol();
+            IntArrayList rowIds = pair.getRowIds();
+            rowIds.add(rowId);
+            sum += getIntField(rowId, 0);
+            pair.setSumCol(sum);
         }
-        rowIds.add(rowId);
     }
 
     private void deleteSecondIndex(Pair keyPair, int rowId) {
-        IntArrayList rowIds = secondIndex.get(keyPair);
+        PairForIndex pair = secondIndex.get(keyPair);
+        int sum = pair.getSumCol();
+        IntArrayList rowIds = pair.getRowIds();
         rowIds.rem(rowId);
         if(rowIds.size() == 0) {
             secondIndex.remove(keyPair);
+        } else {
+            sum -= getIntField(rowId, 0);
+            pair.setSumCol(sum);
         }
     }
 
@@ -257,6 +268,15 @@ public class CustomTable implements Table {
         int sum = 0;
         for (int rowId : list) {
             sum += rowSums.getInt(rowId * ByteFormat.FIELD_LEN);
+        }
+        return sum;
+    }
+
+    // get each row's col
+    private int getCol0Sum(IntArrayList list) {
+        int sum = 0;
+        for (int rowId : list) {
+            sum += getIntField(rowId, 0);
         }
         return sum;
     }
@@ -294,11 +314,11 @@ public class CustomTable implements Table {
         }
     }
 
-    private static class PairForFirstIndex {
+    private static class PairForIndex {
         private int sumCol;
         private IntArrayList rowIds;
 
-        public PairForFirstIndex(int sumCol, IntArrayList rowIds) {
+        public PairForIndex(int sumCol, IntArrayList rowIds) {
             this.sumCol = sumCol;
             this.rowIds = rowIds;
         }
