@@ -18,6 +18,7 @@ public class CustomTable implements Table {
     protected ByteBuffer rowsBuffer;
     protected TreeMap<Integer, IntArrayList> firstIndex;
     protected TreeMap<Pair, IntArrayList> secondIndex;
+    protected Map<Integer, Integer> rangeRowSum;
 
     // rowSum Cache
     protected ByteBuffer rowSums;
@@ -25,6 +26,7 @@ public class CustomTable implements Table {
     public CustomTable() {
         firstIndex = new TreeMap<>();
         secondIndex = new TreeMap<>();
+        rangeRowSum = new HashMap<>();
     }
 
     /**
@@ -62,6 +64,7 @@ public class CustomTable implements Table {
                 curRowSum += getIntField(rowId, colId);
             }
             rowSums.putInt(curRowSum);
+            addRangeRowSum(col0Val, curRowSum);
         }
         rowSums.rewind();
     }
@@ -81,6 +84,7 @@ public class CustomTable implements Table {
     @Override
     public void putIntField(int rowId, int colId, int field) {
         int oldField = getIntField(rowId, colId);
+        int col0Val = getIntField(rowId, 0);
         if (colId == 0) {
             // Delete and add reference
             deleteFirstIndex(oldField, rowId);
@@ -109,7 +113,13 @@ public class CustomTable implements Table {
 
         // Update rowSum cache
         int oldRowSum = rowSums.getInt(ByteFormat.FIELD_LEN * rowId);
-        rowSums.putInt(ByteFormat.FIELD_LEN * rowId, oldRowSum - oldField + field);
+        int newRowSum = oldRowSum - oldField + field;
+        rowSums.putInt(ByteFormat.FIELD_LEN * rowId, newRowSum);
+
+        // Update rangeRowSum cache
+        int newCol0Val = getIntField(rowId, 0);
+        subtractRangeRowSum(col0Val, oldRowSum);
+        addRangeRowSum(newCol0Val, newRowSum);
     }
 
     /**
@@ -166,10 +176,11 @@ public class CustomTable implements Table {
             if (col0Val <= threshold) {
                 break;
             }
-            IntArrayList rowIds = entry.getValue();
-            for (int i = 0; i < rowIds.size(); i++) {
-                sum += rowSums.getInt(rowIds.getInt(i) * ByteFormat.FIELD_LEN);
-            }
+//            IntArrayList rowIds = entry.getValue();
+//            for (int i = 0; i < rowIds.size(); i++) {
+//                sum += rowSums.getInt(rowIds.getInt(i) * ByteFormat.FIELD_LEN);
+//            }
+            sum += rangeRowSum.get(col0Val);
         }
         return sum;
     }
@@ -232,6 +243,16 @@ public class CustomTable implements Table {
         if(rowIds.size() == 0) {
             secondIndex.remove(keyPair);
         }
+    }
+
+    private void addRangeRowSum(int key, int curRowSum) {
+        int curRangeRowSum = rangeRowSum.getOrDefault(key, 0);
+        rangeRowSum.put(key, curRangeRowSum + curRowSum);
+    }
+
+    private void subtractRangeRowSum(int key, int curRowSum) {
+        int curRangeRowSum = rangeRowSum.get(key);
+        rangeRowSum.put(key, curRangeRowSum - curRowSum);
     }
 
     /**
