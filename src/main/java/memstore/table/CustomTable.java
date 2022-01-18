@@ -86,6 +86,7 @@ public class CustomTable implements Table {
     @Override
     public void putIntField(int rowId, int colId, int field) {
         final int oldField = getIntField(rowId, colId);
+        Pair col12Val;
         if (colId == 0) {
             // Delete and add reference
             deleteFirstIndex(oldField, rowId);
@@ -95,12 +96,11 @@ public class CustomTable implements Table {
             // update secondIndex cache
             final int col1Val = getIntField(rowId, 1);
             final int col2Val = getIntField(rowId, 2);
-            Pair pair = new Pair(col1Val, col2Val);
-            deleteSecondIndex(pair, oldField);
-            addSecondIndex(pair, field);
+            col12Val = new Pair(col1Val, col2Val);
+            deleteSecondIndex(col12Val, oldField);
+            addSecondIndex(col12Val, field);
         } else if (colId == 1 || colId == 2) {
-            Pair col12Val;
-            int col0Val = getIntField(rowId, 0);
+            final int col0Val = getIntField(rowId, 0);
 
             // Delete and add reference
             if (colId == 1) {
@@ -179,7 +179,8 @@ public class CustomTable implements Table {
                 break;
             }
             IntArrayList rowIds = entry.getValue();
-            for (int i = 0; i < rowIds.size(); i++) {
+            final int size = rowIds.size();
+            for (int i = 0; i < size; i++) {
                 sum += rowSums.getInt(rowIds.getInt(i) * ByteFormat.FIELD_LEN);
             }
         }
@@ -201,7 +202,8 @@ public class CustomTable implements Table {
                 break;
             }
             IntArrayList rowIds = entry.getValue();
-            for (int i = 0; i < rowIds.size(); i++) {
+            final int size = rowIds.size();
+            for (int i = 0; i < size; i++) {
                 ++count;
                 int rowId = rowIds.getInt(i);
                 int col2Val = getIntField(rowId, 2);
@@ -224,9 +226,9 @@ public class CustomTable implements Table {
     private void deleteFirstIndex(int key, int rowId) {
         IntArrayList rowIds = firstIndex.get(key);
         rowIds.rem(rowId);
-        if (rowIds.size() == 0) {
-            firstIndex.remove(key);
-        }
+//        if (rowIds.size() == 0) {
+//            firstIndex.remove(key);
+//        }
     }
 
     private void addSecondIndex(Pair keyPair, int Col0Val) {
