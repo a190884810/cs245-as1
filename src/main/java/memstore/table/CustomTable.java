@@ -76,7 +76,7 @@ public class CustomTable implements Table {
      */
     @Override
     public int getIntField(int rowId, int colId) {
-        int offset = ByteFormat.FIELD_LEN * ((colId * numRows) + rowId);
+        final int offset = ByteFormat.FIELD_LEN * ((colId * numRows) + rowId);
         return columnsBuffer.getInt(offset);
     }
 
@@ -85,7 +85,7 @@ public class CustomTable implements Table {
      */
     @Override
     public void putIntField(int rowId, int colId, int field) {
-        int oldField = getIntField(rowId, colId);
+        final int oldField = getIntField(rowId, colId);
         if (colId == 0) {
             // Delete and add reference
             deleteFirstIndex(oldField, rowId);
@@ -93,35 +93,36 @@ public class CustomTable implements Table {
             sumCol0 += field - oldField;
 
             // update secondIndex cache
-            int col1Val = getIntField(rowId, 1);
-            int col2Val = getIntField(rowId, 2);
+            final int col1Val = getIntField(rowId, 1);
+            final int col2Val = getIntField(rowId, 2);
             Pair pair = new Pair(col1Val, col2Val);
             deleteSecondIndex(pair, oldField);
             addSecondIndex(pair, field);
         } else if (colId == 1 || colId == 2) {
             Pair col12Val;
-            Pair updatedKeyPair;
-
             int col0Val = getIntField(rowId, 0);
+
             // Delete and add reference
             if (colId == 1) {
                 int col2Val = getIntField(rowId, 2);
                 col12Val = new Pair(oldField, col2Val);
                 deleteSecondIndex(col12Val, col0Val);
-                updatedKeyPair = new Pair(field, col2Val);
+                col12Val.setCol1Val(field);
+                col12Val.setCol2Val(col2Val);
             } else {
                 int col1Val = getIntField(rowId, 1);
                 col12Val = new Pair(col1Val, oldField);
                 deleteSecondIndex(col12Val, col0Val);
-                updatedKeyPair = new Pair(col1Val, field);
+                col12Val.setCol1Val(col1Val);
+                col12Val.setCol2Val(field);
             }
-            addSecondIndex(updatedKeyPair, col0Val);
+            addSecondIndex(col12Val, col0Val);
         }
-        int offset = ByteFormat.FIELD_LEN * ((colId * numRows) + rowId);
+        final int offset = ByteFormat.FIELD_LEN * ((colId * numRows) + rowId);
         columnsBuffer.putInt(offset, field);
 
         // Update rowSum cache
-        int oldRowSum = rowSums.getInt(ByteFormat.FIELD_LEN * rowId);
+        final int oldRowSum = rowSums.getInt(ByteFormat.FIELD_LEN * rowId);
         rowSums.putInt(ByteFormat.FIELD_LEN * rowId, oldRowSum - oldField + field);
     }
 
@@ -229,12 +230,12 @@ public class CustomTable implements Table {
     }
 
     private void addSecondIndex(Pair keyPair, int Col0Val) {
-        int rangeCol0Sum = secondIndex.getOrDefault(keyPair, 0);
+        final int rangeCol0Sum = secondIndex.getOrDefault(keyPair, 0);
         secondIndex.put(keyPair, rangeCol0Sum + Col0Val);
     }
 
     private void deleteSecondIndex(Pair keyPair, int Col0Val) {
-        int rangeCol0Sum = secondIndex.getOrDefault(keyPair, 0);
+        final int rangeCol0Sum = secondIndex.getOrDefault(keyPair, 0);
         secondIndex.put(keyPair, rangeCol0Sum - Col0Val);
     }
 
@@ -246,8 +247,8 @@ public class CustomTable implements Table {
      * priority of col1Val > priority of col2Val
      */
     private static class Pair implements Comparable<Pair> {
-        private final int col1Val;
-        private final int col2Val;
+        private int col1Val;
+        private int col2Val;
 
         public Pair(int col1Val, int col2Val) {
             this.col1Val = col1Val;
@@ -268,6 +269,14 @@ public class CustomTable implements Table {
                 return col2Val - p.getCol2Val();
             }
             return p.getCol1Val() - col1Val;
+        }
+
+        public void setCol1Val(int col1Val) {
+            this.col1Val = col1Val;
+        }
+
+        public void setCol2Val(int col2Val) {
+            this.col2Val = col2Val;
         }
     }
 }
