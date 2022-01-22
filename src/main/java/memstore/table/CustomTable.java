@@ -15,7 +15,7 @@ public class CustomTable implements Table {
     protected int numRows;
     protected int numCols;
     protected int sumCol0;
-    protected ByteBuffer columnsBuffer;
+    protected ByteBuffer rowsBuffer;
     protected TreeMap<Integer, IntArrayList> firstIndex;
     protected TreeMap<Integer, TreeMap<Integer, Integer>> secondIndex;
 
@@ -38,18 +38,13 @@ public class CustomTable implements Table {
         this.numCols = loader.getNumCols();
         List<ByteBuffer> rows = loader.getRows();
         this.numRows = rows.size();
-        this.columnsBuffer = ByteBuffer.allocate(ByteFormat.FIELD_LEN * numRows * numCols);
+        this.rowsBuffer = ByteBuffer.allocate(ByteFormat.FIELD_LEN * numRows * numCols);
         this.rowSums = ByteBuffer.allocate(ByteFormat.FIELD_LEN * numRows);
 
         for (int rowId = 0; rowId < numRows; rowId++) {
             ByteBuffer curRow = rows.get(rowId);
-            for (int colId = 0; colId < numCols; colId++) {
-                int offset = ByteFormat.FIELD_LEN * ((colId * numRows) + rowId);
-                this.columnsBuffer.putInt(offset, curRow.getInt(ByteFormat.FIELD_LEN * colId));
-            }
-        }
+            this.rowsBuffer.put(curRow);
 
-        for (int rowId = 0; rowId < numRows; rowId++) {
             int col0Val = getIntField(rowId, 0);
             sumCol0 += col0Val;
             // Build first index cache
@@ -75,8 +70,8 @@ public class CustomTable implements Table {
      */
     @Override
     public int getIntField(int rowId, int colId) {
-        int offset = ByteFormat.FIELD_LEN * ((colId * numRows) + rowId);
-        return columnsBuffer.getInt(offset);
+        int offset = (rowId * numCols + colId) * ByteFormat.FIELD_LEN;
+        return rowsBuffer.getInt(offset);
     }
 
     /**
@@ -109,8 +104,8 @@ public class CustomTable implements Table {
                 addSecondIndex(col1Val, field, col0Val);
             }
         }
-        int offset = ByteFormat.FIELD_LEN * ((colId * numRows) + rowId);
-        columnsBuffer.putInt(offset, field);
+        int offset = (rowId * numCols + colId) * ByteFormat.FIELD_LEN;
+        rowsBuffer.putInt(offset, field);
 
         // Update rowSum cache
         int oldRowSum = rowSums.getInt(ByteFormat.FIELD_LEN * rowId);
@@ -197,10 +192,11 @@ public class CustomTable implements Table {
 
     private void deleteFirstIndex(int key, int rowId) {
         IntArrayList rowIds = firstIndex.get(key);
-        rowIds.rem(rowId);
         if (rowIds.size() == 0) {
             firstIndex.remove(key);
+            return;
         }
+        rowIds.rem(rowId);
     }
 
     private void addSecondIndex(int key1, int key2, int col0Val) {
@@ -214,6 +210,11 @@ public class CustomTable implements Table {
 
     private void deleteSecondIndex(int key1, int key2, int col0Val) {
         TreeMap<Integer, Integer> subIndex = secondIndex.get(key1);
-        subIndex.put(key2, subIndex.get(key2) - col0Val);
+        int val = subIndex.get(key2) - col0Val;
+        if (val == 0) {
+            subIndex.remove(key2);
+            return;
+        }
+        subIndex.put(key2, val);
     }
 }
