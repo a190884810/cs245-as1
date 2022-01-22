@@ -146,13 +146,9 @@ public class CustomTable implements Table {
     @Override
     public long predicatedColumnSum(int threshold1, int threshold2) {
         long sum = 0;
-        for (Map.Entry<Pair, Integer> entry : secondIndex.entrySet()) {
+        Pair pair = new Pair(threshold1, 0);
+        for (Map.Entry<Pair, Integer> entry : secondIndex.tailMap(pair, false).entrySet()) {
             Pair keyPair = entry.getKey();
-            // check the threshold
-            int col1Val = keyPair.getCol1Val();
-            if (col1Val <= threshold1) {
-                break;
-            }
             int col2Val = keyPair.getCol2Val();
             if (col2Val >= threshold2) {
                 continue;
@@ -172,12 +168,7 @@ public class CustomTable implements Table {
     @Override
     public long predicatedAllColumnsSum(int threshold) {
         long sum = 0;
-        for (Map.Entry<Integer, IntArrayList> entry : firstIndex.descendingMap().entrySet()) {
-            int col0Val = entry.getKey();
-            if (col0Val <= threshold) {
-                break;
-            }
-            IntArrayList rowIds = entry.getValue();
+        for (IntArrayList rowIds : firstIndex.tailMap(threshold, false).values()) {
             for (int i = 0; i < rowIds.size(); i++) {
                 sum += rowSums.getInt(rowIds.getInt(i) * ByteFormat.FIELD_LEN);
             }
@@ -194,12 +185,7 @@ public class CustomTable implements Table {
     @Override
     public int predicatedUpdate(int threshold) {
         int count = 0;
-        for (Map.Entry<Integer, IntArrayList> entry : firstIndex.entrySet()) {
-            int col0Val = entry.getKey();
-            if (col0Val >= threshold) {
-                break;
-            }
-            IntArrayList rowIds = entry.getValue();
+        for (IntArrayList rowIds : firstIndex.headMap(threshold, false).values()) {
             for (int i = 0; i < rowIds.size(); i++) {
                 ++count;
                 int rowId = rowIds.getInt(i);
@@ -260,6 +246,22 @@ public class CustomTable implements Table {
 
         public int getCol2Val() {
             return col2Val;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o instanceof Pair) {
+                return col1Val == ((Pair)o).getCol1Val() && col2Val == ((Pair)o).getCol2Val();
+            }
+            return false;
+        }
+
+        @Override
+        public int hashCode() {
+            return 10000 * col1Val + col2Val;
         }
 
         @Override
