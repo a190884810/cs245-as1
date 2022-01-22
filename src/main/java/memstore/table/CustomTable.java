@@ -17,7 +17,7 @@ public class CustomTable implements Table {
     protected int sumCol0;
     protected ByteBuffer columnsBuffer;
     protected TreeMap<Integer, IntArrayList> firstIndex;
-    protected TreeMap<Pair, Integer> secondIndex;
+    protected TreeMap<Integer, TreeMap<Integer, Integer>> secondIndex;
 
     // rowSum Cache
     protected ByteBuffer rowSums;
@@ -58,8 +58,7 @@ public class CustomTable implements Table {
             // Build second index cache
             int col1Val = getIntField(rowId, 1);
             int col2Val = getIntField(rowId, 2);
-            Pair col12Val = new Pair(col1Val, col2Val);
-            addSecondIndex(col12Val, col0Val);
+            addSecondIndex(col1Val, col2Val, col0Val);
 
             // Setup rowSum cache
             int curRowSum = 0;
@@ -95,27 +94,20 @@ public class CustomTable implements Table {
             // update secondIndex cache
             int col1Val = getIntField(rowId, 1);
             int col2Val = getIntField(rowId, 2);
-            Pair pair = new Pair(col1Val, col2Val);
-            deleteSecondIndex(pair, oldField);
-            addSecondIndex(pair, field);
+            deleteSecondIndex(col1Val, col2Val, oldField);
+            addSecondIndex(col1Val, col2Val, field);
         } else if (colId == 1 || colId == 2) {
-            Pair col12Val;
-            Pair updatedKeyPair;
-
             int col0Val = getIntField(rowId, 0);
             // Delete and add reference
             if (colId == 1) {
                 int col2Val = getIntField(rowId, 2);
-                col12Val = new Pair(oldField, col2Val);
-                deleteSecondIndex(col12Val, col0Val);
-                updatedKeyPair = new Pair(field, col2Val);
+                deleteSecondIndex(oldField, col2Val, col0Val);
+                addSecondIndex(field, col2Val, col0Val);
             } else {
                 int col1Val = getIntField(rowId, 1);
-                col12Val = new Pair(col1Val, oldField);
-                deleteSecondIndex(col12Val, col0Val);
-                updatedKeyPair = new Pair(col1Val, field);
+                deleteSecondIndex(col1Val, oldField, col0Val);
+                addSecondIndex(col1Val, field, col0Val);
             }
-            addSecondIndex(updatedKeyPair, col0Val);
         }
         int offset = ByteFormat.FIELD_LEN * ((colId * numRows) + rowId);
         columnsBuffer.putInt(offset, field);
@@ -146,19 +138,10 @@ public class CustomTable implements Table {
     @Override
     public long predicatedColumnSum(int threshold1, int threshold2) {
         long sum = 0;
-        for (Map.Entry<Pair, Integer> entry : secondIndex.entrySet()) {
-            Pair keyPair = entry.getKey();
-            // check the threshold
-            int col1Val = keyPair.getCol1Val();
-            if (col1Val <= threshold1) {
-                break;
+        for (TreeMap<Integer, Integer> subIndex : secondIndex.tailMap(threshold1, false).values()) {
+            for (Integer col0Val : subIndex.headMap(threshold2, false).values()) {
+                sum += col0Val;
             }
-            int col2Val = keyPair.getCol2Val();
-            if (col2Val >= threshold2) {
-                continue;
-            }
-            int rangeCol0Sum = entry.getValue();
-            sum += rangeCol0Sum;
         }
         return sum;
     }
@@ -172,13 +155,9 @@ public class CustomTable implements Table {
     @Override
     public long predicatedAllColumnsSum(int threshold) {
         long sum = 0;
-        for (Map.Entry<Integer, IntArrayList> entry : firstIndex.descendingMap().entrySet()) {
-            int col0Val = entry.getKey();
-            if (col0Val <= threshold) {
-                break;
-            }
-            IntArrayList rowIds = entry.getValue();
-            for (int i = 0; i < rowIds.size(); i++) {
+        for (IntArrayList rowIds : firstIndex.tailMap(threshold, false).values()) {
+            int size = rowIds.size();
+            for (int i = 0; i < size; i++) {
                 sum += rowSums.getInt(rowIds.getInt(i) * ByteFormat.FIELD_LEN);
             }
         }
@@ -194,13 +173,9 @@ public class CustomTable implements Table {
     @Override
     public int predicatedUpdate(int threshold) {
         int count = 0;
-        for (Map.Entry<Integer, IntArrayList> entry : firstIndex.entrySet()) {
-            int col0Val = entry.getKey();
-            if (col0Val >= threshold) {
-                break;
-            }
-            IntArrayList rowIds = entry.getValue();
-            for (int i = 0; i < rowIds.size(); i++) {
+        for (IntArrayList rowIds : firstIndex.headMap(threshold, false).values()) {
+            int size = rowIds.size();
+            for (int i = 0; i < size; i++) {
                 ++count;
                 int rowId = rowIds.getInt(i);
                 int col2Val = getIntField(rowId, 2);
@@ -228,46 +203,17 @@ public class CustomTable implements Table {
         }
     }
 
-    private void addSecondIndex(Pair keyPair, int Col0Val) {
-        int rangeCol0Sum = secondIndex.getOrDefault(keyPair, 0);
-        secondIndex.put(keyPair, rangeCol0Sum + Col0Val);
+    private void addSecondIndex(int key1, int key2, int col0Val) {
+        TreeMap<Integer, Integer> subIndex = secondIndex.getOrDefault(key1, null);
+        if (subIndex == null) {
+            subIndex = new TreeMap<>();
+            secondIndex.put(key1, subIndex);
+        }
+        subIndex.put(key2, subIndex.getOrDefault(key2, 0) + col0Val);
     }
 
-    private void deleteSecondIndex(Pair keyPair, int Col0Val) {
-        int rangeCol0Sum = secondIndex.getOrDefault(keyPair, 0);
-        secondIndex.put(keyPair, rangeCol0Sum - Col0Val);
-    }
-
-    /**
-     * To maintain a following order in the index cache
-     *      {a, b}, {c, d}, {e, f}
-     *      a > c, b < d; c > e, d < f
-     *
-     * priority of col1Val > priority of col2Val
-     */
-    private static class Pair implements Comparable<Pair> {
-        private final int col1Val;
-        private final int col2Val;
-
-        public Pair(int col1Val, int col2Val) {
-            this.col1Val = col1Val;
-            this.col2Val = col2Val;
-        }
-
-        public int getCol1Val() {
-            return col1Val;
-        }
-
-        public int getCol2Val() {
-            return col2Val;
-        }
-
-        @Override
-        public int compareTo(Pair p) {
-            if (col1Val == p.getCol1Val()) {
-                return col2Val - p.getCol2Val();
-            }
-            return p.getCol1Val() - col1Val;
-        }
+    private void deleteSecondIndex(int key1, int key2, int col0Val) {
+        TreeMap<Integer, Integer> subIndex = secondIndex.get(key1);
+        subIndex.put(key2, subIndex.get(key2) - col0Val);
     }
 }
